@@ -177,7 +177,30 @@ glimpse(stats) # batter_name is last name. first name all lower case
 
 ```
 
+## Now I'm RTFM to Try and Figure Out How Best to Join These Data Frames Together (Especially Since player_name is Primarily for Pitchers)
 
+I noticed "des" has batter names in it, so might be able to extract that, but want to make sure there's not something way simpler than that if I RTFM.
+
+Lol, there's something way simpler, matching on (I think!) 'batter' in 'stats' and 'key_mlbam' in 'batmen'
+
+```{r}
+
+# Doing a left_join since we want to retain all the info in the stats database and have batters show up wherever there's an event involving them (which could/should happen multiple times)
+
+rise_batmen <- stats %>% 
+  left_join(batmen, by = c("batter" = "key_mlbam"))
+
+# The glimpse provides a sanity check with the des column against the batter_name column, where we see brantley in both places
+
+glimpse(rise_batmen)
+
+# To double check though, and to be on theme, let's do a random slice and make sure those columns agree. They do!
+
+rise_batmen %>% 
+  slice(3300) %>% 
+  dplyr::select(des, batter_name)
+
+```
 
 
 
