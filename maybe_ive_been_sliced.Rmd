@@ -19,7 +19,7 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE, warning = FALSE, message = FALSE
 
 ```
 
-## Loading Probably Way Too Many Packages
+## Loading Probably Way Too Many Packages (Code Not Included)
 
 ```{r loading packages}
 
@@ -161,7 +161,7 @@ registerDoMC(cores = 7)
 
 # First, Let's Get the Data Read In
 
-```{r}
+```{r, include = TRUE}
 
 ## Both small enough to easily put in memory, so just downloaded them to my r project folder and can read them in directly
 
@@ -181,11 +181,11 @@ glimpse(stats) # batter_name is last name. first name all lower case
 
 # Now I'm RTFM to Try and Figure Out How Best to Join These Data Frames Together (Especially Since player_name is Primarily for Pitchers)
 
-I noticed "des" has batter names in it, so might be able to extract that, but want to make sure there's not something way simpler than that if I RTFM.
+I noticed "des" has batter names in it, so might be able to extract that, but want to make sure there's not something way simpler than that if I RTFM.  
 
 Lol, there's something way simpler, matching on (I think!) 'batter' in 'stats' and 'key_mlbam' in 'batmen'
 
-```{r}
+```{r, include = TRUE}
 
 # Doing a left_join since we want to retain all the info in the stats database and have batters show up wherever there's an event involving them (which could/should happen multiple times)
 
@@ -196,7 +196,7 @@ rise_batmen <- stats %>%
 
 glimpse(rise_batmen)
 
-# To double check though, and to be on theme, let's do a random slice and make sure those columns agree. They do!
+# To double check though, and to be on theme, let's do a random slice and make sure those columns agree. (If they don't my model might be screwed before I even start since that means we're not matching info correctly) They do!
 
 rise_batmen %>% 
   slice(3300) %>% 
@@ -205,37 +205,255 @@ rise_batmen %>%
 ```
 ## Challenges 2/3 Modeling/Data Viz
 
-The last time I watched baseball regularly the fielders stood in the same place for every batter, so domain expertise is not a thing for me.
-But just based on missing data/type of data I don't want to try to predict events, hit_distance, description, or pitch_type (Though maybe the last one would be fine, but I don't have to so I won't!)  
-I'm choosing delta_home_win_exp because it's only missing twice in this training data, and it feels cool to predict the difference in win expectancy before and after each plate appearance. 
+The last time I watched baseball regularly the fielders stood in the same place for every batter, so domain expertise is not a thing for me. But just based on missing data/type of data I don't want to try to predict events, hit_distance, or pitch_type (Though maybe the last one would be fine, but I don't have to so I won't!). I'm choosing delta_home_win_exp because it's only missing twice in this training data, and it feels cool to predict the difference in win expectancy before and after each plate appearance. 
 
 
-```{r}
+```{r, include = TRUE}
 
 skim(rise_batmen)
 
 ```
 
+# Let's Do Some Feature Engineering
 
-```{r}
+Mostly making variables that wouldn't be useful as character values but might contribute to prediction into factor variables, engineering whether runners are on base at all, engineering whether runners are in scoring position, and engineering difference between home and away score
+
+I'm guessing post_away_score and post_home_score (and their difference!) will matter most for delta_home_win_exp in any model, but I guess we'll see...
+
+```{r, include = TRUE}
+
+#glimpse(rise_batmen)
+
+# Want to convert things that aren't actually numeric but might be relevant like pitcher and batter id to factors, engineer whether runners are on base or in scoring position
+
+fancy_batmen <- rise_batmen %>% 
+  mutate(across(c(pitch_type, batter, pitcher, events, description, game_type:type,inning_topbot,
+                  if_fielding_alignment,of_fielding_alignment,game_year,game_pk,pitch_name), as.factor), # Converting either numeric or character to factors
+         on_base = factor(case_when(
+           
+           !is.na(on_3b) | !is.na(on_2b) | !is.na(on_1b) ~ "Yes",
+           TRUE ~ "No"
+           
+         )),
+         run_score_pos = factor(case_when(
+           
+           !is.na(on_3b) | !is.na(on_2b) ~ "Yes",
+           TRUE ~ "No"
+           
+         )),
+         post_delta_score = post_home_score - post_away_score) %>% 
+  dplyr::select(-player_name,-des,-c(on_3b:on_1b),-pitcher.1,-batter_name,-game_year) ## Leave out variables that can't really contribute beyond other features or just aren't relevant
+
+```
+
+Alright, had to take care of some work stuff, I spent too long feature engineering, so let's get to some initial visualization of correlations between retained numeric predictors.
+
+There are some strong correlations here, but nothing so extreme I feel like I *have* to do dimension reduction (Though if I have time might revisit that later)
+
+```{r, include = TRUE}
+
+## looking at correlations between predictors
+
+cor_mat <- fancy_batmen %>% 
+  na.omit() %>%  # Not ideal to just drop NAs, but trying to go faster here to get a general sense of what's happening
+  dplyr::select(is.numeric, -delta_home_win_exp) %>%
+  cor()
+
+cor_map <-
+  heatmaply_cor(
+    cor_mat,
+    symm = TRUE,
+    cexRow = .0001,
+    cexCol = .0001,
+    branches_lwd = .1
+  )
+cor_map
+
+```
+
+Let's also look at associations between each of the numeric predictors and outcome. This code takes a while to run, so I'm going to be working on my modeling code as this is happening. Looking at these associations, basically all of them have flat associations with win expectancy, including engineered features. I'm likely going to need a model that can pick up on high level interactions if I want to have a shot at decent prediction. (And I might still not!)
+
+```{r, include = TRUE}
+
+# Do it once
+
+fancy_batmen %>% 
+  ggplot(aes(x = post_delta_score, y =  delta_home_win_exp)) +
+  geom_point(alpha = 0.2, position = "jitter") +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE, col = "red") +
+  labs(y = "Change in Home Team Winning Expectation")
+
+# Write a function
+
+for_cor_plotting <- fancy_batmen %>% 
+  dplyr::select(is.numeric, -delta_home_win_exp) %>% 
+  names()
+
+map(for_cor_plotting, ~{
+  
+  fancy_batmen %>% 
+  ggplot(aes(x = .data[[.x]], y =  delta_home_win_exp)) +
+  geom_point(alpha = 0.2, position = "jitter") +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE, col = "red") +
+  labs(y = "Change in Home Team Winning Expectation")
+  
+})
+
+```
+
+# Setting Up Our Preprocessing Recipe and Models
+
+```{r, include = TRUE}
+
+## Original model was taking way too long to run, so to make sure I have something within 2 hours I'm going to scale down to numeric predictors only
+
+numbers_batmen <- fancy_batmen %>% 
+  dplyr::select(where(is.numeric)) %>%
+  filter(!is.na(delta_home_win_exp))
+
+skim(numbers_batmen) # Looking here becaue I think imputation is taking too long
+
+numbers_batmen <- numbers_batmen %>% # Removing some features that might be relevant but just have to much missing data to do knn imputation in a reasonable amount of time (I don't think mean or median imputation makes sense for a lot of these, though I could be wrong. Weeee so little domain knowledge!!)
+  dplyr::select(-c(hc_x, hc_y, hit_distance_sc:launch_angle, launch_speed_angle))
+
+sliced_recipe <- 
+  recipe(delta_home_win_exp ~ ., data = numbers_batmen) %>% 
+  #step_dummy(all_nominal()) %>% # Don't need this anymore since no nominal predictors
+  step_impute_median(all_numeric(),-all_outcomes()) # Switched to this since some distributions were skewed and knn imputation was taking too long given time constraints
+
+## Checking to make sure the recipe will work in the model
+
+pred_batmen <- sliced_recipe %>% 
+  prep(verbose = TRUE) %>% 
+  bake(new_data = numbers_batmen) %>% 
+  print()
+
+# Creating random forest model
+
+# rf_mod <- rand_forest() %>% 
+#   set_engine("ranger") %>% 
+#   set_mode("regression")
+
+# Creating gradient-boosted tree model
+
+xg_mod <- boost_tree() %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+# Creating linear regression
+
+lm_mod <- linear_reg() %>% 
+  set_engine("lm")
+
+# Create a list of preprocessing recipes
+
+base_model_rec_list <- list(sliced_recipe, sliced_recipe)
+
+base_model_mod_list <- list(lm_mod, xg_mod)
+
+# Combining each recipe into a tidymodels workflows using a map function
+
+base_model_wfs <- map2(base_model_rec_list, base_model_mod_list, ~{
+  
+  wf <- workflow() %>% 
+  add_recipe(.x) %>% 
+  add_model(.y)
+}
+)
+
+# Create as list of dataframes we'll be using to fit these models
+
+base_model_data_list <- list(numbers_batmen, numbers_batmen)
+
+# Fitting each model once to make sure they run, and they do (Note how long fitting one model takes for each as well, adjusting cross-validation for that reason)
+
+base_model_one_time_fit <- map2(base_model_wfs, base_model_data_list, ~{
+
+registerDoMC(cores = 7)
+tic()
+ema_rf_wf_fit <- fit(.x, data = .y)
+toc()
+ema_rf_wf_fit
+
+})
+
 
 
 
 ```
 
+Trying to run both models at once so everything else (pulling metrics, plotting predictions vs. actual values) can happen all at once! I know workflowsets exists now but I haven't had a chance to really dive in on how to use it, so I'm using these manual map functions for now. I feel like workflowsets would probably save me time in the competition, but definitely not right now since I wouldn't know wtf I was doing.
 
+```{r, include = TRUE}
 
+base_model_fit_all_rs <- map2(base_model_wfs, base_model_data_list, ~{
+  
+registerDoMC(cores = 7)
 
+set.seed(33)
+folds_pred <- vfold_cv(.y, v = 4, repeats = 4, strata = delta_home_win_exp)
 
+## Run the CV models here
+keep_pred <- control_resamples(save_pred = TRUE)
+tic()
+set.seed(33)
+rf_fit_rs <- 
+  .x %>% 
+  fit_resamples(folds_pred, control = keep_pred)
+toc()
+rf_fit_rs
 
+} 
+)
 
+```
 
+## Getting the Predction Metrics!! Let's See How Hard I'm About to Get Sliced...
 
+# Before I Know the Outcome Pros/Cons of Each Model
 
+I originally wanted to chpose both random forest and boosted tree models because I saw there was essentially no linear association between any of the numeric predictors and the outcome, but the random forest ended up being way too compuationally expensive to fit within the time limit (Had to scramble at the end to get models that woudl just fit!).
 
+I ended up fitting a simple linear model and the boosted tree model. The huge pro here is way reduced computation time, plus in lots of cases even much fancier, more computationally expensive models don't actually improve fit by that much. A big con is it can't pick up on interactions, and as I saw from visualiztions the univariate relationships between predictors and the outcome were pretty weak. I'm relying on lots of small predictors adding up in that model. The huge pro of the boosted tree is being able to pick up on those higher-order interactions, though I definitely had to reduce my number of cross-validaitons and repeats to get it to fit into the time limit (so a con there since it effects how stable my measures of out of sample accuracy might be for both models!)
 
+# How Did They Do?
 
+The boosted tree model did better than the simple linear model on both RMSE (0.019 BT vs. 0.024 for LM), which is on the same scale as the original metric. Based on my earlier skim these predictions are both inside 1 SD of the outcome, but not by a bunch. I'm sure these predictions aren't awesome, but they exist!
 
+```{r, include = TRUE}
 
+base_model_metrics <- map(base_model_fit_all_rs, ~{
+  
+  .x %>% 
+  collect_metrics(summarize = TRUE)
 
+}) %>% 
+  print()
 
+```
+
+## Plotting the Predictions of Both Models Against the Actual Values
+
+The linear model obviously isn't doing super hot, but even the boosted tree model breaks down a lot at the extremes + isn't that awesome in the middle either. Looking back I wonder if some kind of zero-inflated model would have done much better (though that would be tricky since negative values are possible, it's not a count variable)
+
+```{r, include = TRUE}
+
+base_model_preds_all_rs <- map(base_model_fit_all_rs, ~{
+  
+  preds <- .x %>% 
+  collect_predictions(summarize = TRUE)
+
+})
+
+map(base_model_preds_all_rs, ~{
+  .x %>% 
+  ggplot(aes(x = .pred, y = delta_home_win_exp)) +
+  geom_point(alpha = 0.2, position = "jitter")
+}
+)
+
+```
+
+## Final Thoughts (As I Hear the Slice Coming Closer)
+
+This was super fun and really wild! I definitely think I'll end up using less time-intensive stuff earlier if I make it onto Sliced, try to get an initial model running, and then go back to see if I can improve upon it. I think I avoided some pitfalls in feature engineering ok, but I didn't anticipate my models taking so long to run later, so I have to better budget model running time in the future (though I was able to write my metrics/visualize predictions code while the model was running, and I think that helped). I even had to take a break in the middle to handle some work stuff (I recognize not ideal/realistic), but I think work-time I spent almost exactly (yikes!) 2 hours on this code. I had to make way more tradeoffs in the models/preprocessing I wanted to do vs. the models/preprocessing that I knew could happen with 2 hours than I thought I would! I think I learned a lot even just from doing this screener, so thanks for making it available!
