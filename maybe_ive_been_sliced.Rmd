@@ -157,7 +157,9 @@ registerDoMC(cores = 7)
 
 ```
 
-## First, Let's Get the Data Read In
+## Challenge 1: Reading and Munging
+
+# First, Let's Get the Data Read In
 
 ```{r}
 
@@ -177,7 +179,7 @@ glimpse(stats) # batter_name is last name. first name all lower case
 
 ```
 
-## Now I'm RTFM to Try and Figure Out How Best to Join These Data Frames Together (Especially Since player_name is Primarily for Pitchers)
+# Now I'm RTFM to Try and Figure Out How Best to Join These Data Frames Together (Especially Since player_name is Primarily for Pitchers)
 
 I noticed "des" has batter names in it, so might be able to extract that, but want to make sure there's not something way simpler than that if I RTFM.
 
@@ -201,8 +203,25 @@ rise_batmen %>%
   dplyr::select(des, batter_name)
 
 ```
+## Challenges 2/3 Modeling/Data Viz
+
+The last time I watched baseball regularly the fielders stood in the same place for every batter, so domain expertise is not a thing for me.
+But just based on missing data/type of data I don't want to try to predict events, hit_distance, description, or pitch_type (Though maybe the last one would be fine, but I don't have to so I won't!)  
+I'm choosing delta_home_win_exp because it's only missing twice in this training data, and it feels cool to predict the difference in win expectancy before and after each plate appearance. 
 
 
+```{r}
+
+skim(rise_batmen)
+
+```
+
+
+```{r}
+
+
+
+```
 
 
 
