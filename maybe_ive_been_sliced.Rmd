@@ -19,6 +19,8 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE, warning = FALSE, message = FALSE
 
 ```
 
+## Loading Probably Way Too Many Packages
+
 ```{r loading packages}
 
 if(!require(tidymodels)){install.packages('tidymodels')}
@@ -145,8 +147,53 @@ if(!require(keras)){install.packages('keras')}
 library(keras)
 if(!require(embed)){install.packages('embed')}
 library(embed)
+if(!require(skimr)){install.packages('skimr')}
+library(skimr)
+if(!require(DataExplorer)){install.packages('DataExplorer')}
+library(DataExplorer)
 ## Let's set our number of cores for this document (May differ across computers)
 
 registerDoMC(cores = 7)
 
 ```
+
+## First, Let's Get the Data Read In
+
+```{r}
+
+## Both small enough to easily put in memory, so just downloaded them to my r project folder and can read them in directly
+
+batmen <- read_csv("batter-names.csv")
+
+stats <- read_csv("2019-statcast.csv")
+
+# Let's get a general sense of both data frames using skim and glimpse
+
+skim(batmen) # No whitespace in batter name, which is nice
+glimpse(batmen) # batter_name is last name. first name all lower case
+
+skim(stats) # No whitespace in batter name, which is nice
+glimpse(stats) # batter_name is last name. first name all lower case
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
